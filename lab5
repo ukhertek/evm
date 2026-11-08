@@ -1,0 +1,88 @@
+#include <stdio.h>
+#include <chrono>
+#include <opencv2/opencv.hpp>
+ 
+using namespace cv;
+ 
+double get_ms()
+{
+    using namespace std::chrono;
+    return duration<double, std::milli>(steady_clock::now().time_since_epoch()).count();
+}
+ 
+int main()
+{
+    VideoCapture capture(0, CAP_DSHOW);
+    if (!capture.isOpened()) capture.open(0);
+    if (!capture.isOpened()) {
+        printf("Не удалось открыть камеру\n");
+        return 1;
+    }
+ 
+    double sum_cap = 0, sum_proc = 0, sum_show = 0, sum_wait = 0;
+    int frames = 0;
+    Mat frame, blurred, negative;
+ 
+    double T1 = get_ms();
+ 
+    while (frames < 600) {
+        double t0 = get_ms();
+        capture >> frame;
+        if (frame.empty()) break;
+        double t1 = get_ms();
+        sum_cap += t1 - t0;
+ 
+        blur(frame, blurred, Size(15, 15));
+ 
+        negative = frame.clone();
+        for (int y = 0; y < negative.rows; y++) {
+            uchar *ptr = negative.data + y * negative.step;
+            for (int x = 0; x < negative.cols; x++) {
+                ptr[3 * x]     = 255 - ptr[3 * x];
+                ptr[3 * x + 1] = 255 - ptr[3 * x + 1];
+                ptr[3 * x + 2] = 255 - ptr[3 * x + 2];
+            }
+        }
+        double t2 = get_ms();
+        sum_proc += t2 - t1;
+ 
+        imshow("original", frame);
+        imshow("blur", blurred);
+        imshow("negative", negative);
+        if (frames == 0) {
+            moveWindow("original", 0, 0);
+            moveWindow("blur", 660, 0);
+            moveWindow("negative", 330, 400);
+        }
+        if (frames == 150) {
+            imwrite("original.jpg", frame);
+            imwrite("blur.jpg", blurred);
+            imwrite("negative.jpg", negative);
+        }
+        double t3 = get_ms();
+        sum_show += t3 - t2;
+ 
+        int key = waitKey(33);
+        double t4 = get_ms();
+        sum_wait += t4 - t3;
+ 
+        frames++;
+        if (key == 27) break;
+    }
+ 
+    double total = get_ms() - T1;
+    if (frames > 0) {
+        printf("===== ИТОГ =====\n");
+        printf("Обработано кадров: %d за %.2f с\n", frames, total / 1000.0);
+        printf("Средняя скорость: %.2f кадров/с (FPS)\n", frames * 1000.0 / total);
+        printf("Время на один кадр: %.2f мс\n", total / frames);
+        printf("Доля времени по этапам:\n");
+        printf("  ввод кадра с камеры:  %6.2f мс  %6.2f %%\n", sum_cap / frames,  sum_cap / total * 100);
+        printf("  преобразование:       %6.2f мс  %6.2f %%\n", sum_proc / frames, sum_proc / total * 100);
+        printf("  показ в окнах:        %6.2f мс  %6.2f %%\n", sum_show / frames, sum_show / total * 100);
+        printf("  ожидание (waitKey):   %6.2f мс  %6.2f %%\n", sum_wait / frames, sum_wait / total * 100);
+    }
+    capture.release();
+    destroyAllWindows();
+    return 0;
+}
